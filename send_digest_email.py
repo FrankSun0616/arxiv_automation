@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import html
 import os
 import re
 import smtplib
@@ -45,6 +46,168 @@ def subject_for(markdown: str) -> str:
     return f"{title} - {count} new {noun} - {today}"
 
 
+def clean_inline_markdown(value: str) -> str:
+    value = value.replace("`", "")
+    return re.sub(r"\[(.*?)\]\((.*?)\)", r"\1", value).strip()
+
+
+def parse_metadata(markdown: str) -> dict[str, str]:
+    metadata = {"Title": parse_title(markdown)}
+    for line in markdown.splitlines():
+        if line.startswith("## "):
+            break
+        match = re.match(r"^([A-Za-z ]+):\s*(.*)$", line)
+        if match:
+            metadata[match.group(1)] = clean_inline_markdown(match.group(2))
+    return metadata
+
+
+def parse_markdown_links(value: str) -> dict[str, str]:
+    return {
+        label: url
+        for label, url in re.findall(r"\[([^\]]+)\]\(([^)]+)\)", value)
+    }
+
+
+def parse_papers(markdown: str) -> list[dict]:
+    pieces = re.split(r"^##\s+\d+\.\s+", markdown, flags=re.MULTILINE)
+    headings = re.findall(r"^##\s+\d+\.\s+(.*)$", markdown, flags=re.MULTILINE)
+    papers = []
+    for title, block in zip(headings, pieces[1:]):
+        fields = {}
+        abstract_lines = []
+        in_fields = False
+        for raw_line in block.splitlines():
+            line = raw_line.strip()
+            if line == "---":
+                break
+            if not line:
+                continue
+            if line.startswith("- "):
+                in_fields = True
+                if ":" in line:
+                    key, value = line[2:].split(":", 1)
+                    fields[key.strip()] = value.strip()
+                continue
+            if in_fields:
+                abstract_lines.append(line)
+
+        links = parse_markdown_links(fields.get("Links", ""))
+        keyword_hits = [
+            item.strip()
+            for item in clean_inline_markdown(fields.get("Keyword hits", "")).split(",")
+            if item.strip()
+        ]
+        papers.append(
+            {
+                "title": title.strip(),
+                "authors": clean_inline_markdown(fields.get("Authors", "")),
+                "published": clean_inline_markdown(fields.get("Published", "")),
+                "primary_category": clean_inline_markdown(fields.get("Primary category", "")),
+                "categories": clean_inline_markdown(fields.get("Categories", "")),
+                "priority": clean_inline_markdown(fields.get("Priority", "General CMS/ATLAS")),
+                "priority_hits": clean_inline_markdown(fields.get("Priority hits", "")),
+                "keyword_hits": keyword_hits,
+                "arxiv_url": links.get("arXiv", ""),
+                "pdf_url": links.get("PDF", ""),
+                "abstract": " ".join(abstract_lines),
+            }
+        )
+    return papers
+
+
+def badge(text: str, *, color: str = "#1f6feb", background: str = "#eef5ff") -> str:
+    return (
+        f'<span style="display:inline-block;margin:0 6px 6px 0;padding:4px 8px;'
+        f'border-radius:999px;background:{background};color:{color};font-size:12px;'
+        f'font-weight:600;">{html.escape(text)}</span>'
+    )
+
+
+def link_button(label: str, url: str, *, primary: bool = False) -> str:
+    if not url:
+        return ""
+    background = "#1f6feb" if primary else "#ffffff"
+    color = "#ffffff" if primary else "#1f2937"
+    border = "#1f6feb" if primary else "#d1d5db"
+    return (
+        f'<a href="{html.escape(url, quote=True)}" style="display:inline-block;'
+        f'padding:8px 12px;border-radius:6px;border:1px solid {border};'
+        f'background:{background};color:{color};text-decoration:none;'
+        f'font-size:13px;font-weight:700;margin-right:8px;">{html.escape(label)}</a>'
+    )
+
+
+def render_paper_card(paper: dict, index: int) -> str:
+    is_priority = paper["priority"].lower().startswith("ai/ml")
+    priority_badge = badge(
+        "AI/ML priority" if is_priority else "General CMS/ATLAS",
+        color="#7c2d12" if is_priority else "#374151",
+        background="#fff4e6" if is_priority else "#f3f4f6",
+    )
+    keyword_badges = "".join(badge(item, color="#4b5563", background="#f8fafc") for item in paper["keyword_hits"][:8])
+    title_link = paper["arxiv_url"] or paper["pdf_url"] or "#"
+    abstract = html.escape(paper["abstract"])
+    if len(abstract) > 1200:
+        abstract = abstract[:1197].rstrip() + "..."
+    return f"""
+      <article style="border:1px solid #e5e7eb;border-radius:8px;padding:18px;margin:0 0 16px;background:#ffffff;">
+        <div style="font-size:13px;color:#6b7280;font-weight:700;margin-bottom:8px;">Paper {index}</div>
+        <h2 style="font-size:19px;line-height:1.35;margin:0 0 10px;color:#111827;">
+          <a href="{html.escape(title_link, quote=True)}" style="color:#111827;text-decoration:none;">{html.escape(paper["title"])}</a>
+        </h2>
+        <div style="margin-bottom:8px;">{priority_badge}</div>
+        <p style="margin:0 0 4px;color:#374151;font-size:14px;"><strong>Authors:</strong> {html.escape(paper["authors"])}</p>
+        <p style="margin:0 0 4px;color:#374151;font-size:14px;"><strong>Published:</strong> {html.escape(paper["published"])}</p>
+        <p style="margin:0 0 12px;color:#374151;font-size:14px;"><strong>Primary category:</strong> {html.escape(paper["primary_category"])}</p>
+        <p style="margin:0 0 14px;color:#1f2937;font-size:15px;line-height:1.55;">{abstract}</p>
+        <div style="margin-bottom:12px;">{keyword_badges}</div>
+        <div>
+          {link_button("arXiv", paper["arxiv_url"], primary=True)}
+          {link_button("PDF", paper["pdf_url"])}
+        </div>
+      </article>
+    """
+
+
+def render_html_email(markdown: str) -> str:
+    metadata = parse_metadata(markdown)
+    papers = parse_papers(markdown)
+    priority_count = sum(1 for paper in papers if paper["priority"].lower().startswith("ai/ml"))
+    general_count = max(0, len(papers) - priority_count)
+    paper_cards = "\n".join(render_paper_card(paper, index) for index, paper in enumerate(papers, 1))
+    if not paper_cards:
+        paper_cards = (
+            '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:18px;background:#ffffff;">'
+            "No new papers matched the current configuration.</div>"
+        )
+
+    return f"""<!doctype html>
+<html>
+  <body style="margin:0;background:#f5f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;">{len(papers)} CMS/ATLAS arXiv papers, with AI/ML papers first.</div>
+    <main style="max-width:760px;margin:0 auto;padding:24px 14px;">
+      <section style="background:#111827;color:#ffffff;border-radius:8px;padding:22px;margin-bottom:16px;">
+        <p style="margin:0 0 8px;font-size:13px;color:#cbd5e1;font-weight:700;">CMS/ATLAS arXiv digest</p>
+        <h1 style="margin:0 0 12px;font-size:26px;line-height:1.2;">{html.escape(metadata.get("Title", "arXiv Digest"))}</h1>
+        <p style="margin:0;color:#d1d5db;font-size:14px;">Generated {html.escape(metadata.get("Generated", ""))}</p>
+      </section>
+      <section style="display:block;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:16px;">
+        {badge(f"{len(papers)} new papers", color="#075985", background="#e0f2fe")}
+        {badge(f"{priority_count} AI/ML priority", color="#7c2d12", background="#fff4e6")}
+        {badge(f"{general_count} general", color="#374151", background="#f3f4f6")}
+        <p style="margin:8px 0 0;color:#4b5563;font-size:14px;">Window start: {html.escape(metadata.get("Window start", ""))}</p>
+        <p style="margin:4px 0 0;color:#4b5563;font-size:14px;">Required authors: {html.escape(metadata.get("Required authors", ""))}</p>
+      </section>
+      {paper_cards}
+      <p style="color:#6b7280;font-size:12px;line-height:1.5;margin:18px 0 0;">
+        AI/ML papers are ranked first, followed by other official CMS/ATLAS papers. The Markdown digest is attached.
+      </p>
+    </main>
+  </body>
+</html>"""
+
+
 def build_message(
     *,
     sender: str,
@@ -59,6 +222,7 @@ def build_message(
     message["To"] = ", ".join(recipients)
     message["Subject"] = subject
     message.set_content(body)
+    message.add_alternative(render_html_email(body), subtype="html")
     message.add_attachment(
         body.encode("utf-8"),
         maintype="text",
@@ -115,6 +279,7 @@ def main() -> int:
 
     if args.dry_run:
         print(f"Dry run: would send '{subject}' to {', '.join(recipients)}")
+        print(f"Dry run: HTML paper cards built: {len(parse_papers(body))}")
         return 0
 
     send_message(message, username=gmail_user, password=gmail_password, host=host, port=port)

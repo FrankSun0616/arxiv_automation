@@ -165,9 +165,17 @@ def author_keyword_matches(paper: dict, keywords: list[str]) -> list[str]:
 def grouped_keyword_matches(paper: dict, groups: list[dict]) -> dict[str, list[str]]:
     matches = {}
     for group in groups:
-        name = group.get("name", "required")
+        name = group.get("name", "keywords")
         matches[name] = keyword_matches(paper, group.get("keywords", []))
     return matches
+
+
+def flattened_group_matches(group_matches: dict[str, list[str]]) -> list[str]:
+    seen = {}
+    for matches in group_matches.values():
+        for match in matches:
+            seen.setdefault(match, None)
+    return list(seen)
 
 
 def should_include(
@@ -199,9 +207,15 @@ def should_include(
     return True
 
 
-def sort_papers(papers: list[dict], highlight_keywords: list[str]) -> list[dict]:
-    def score(paper: dict) -> tuple[int, dt.datetime]:
-        return (len(keyword_matches(paper, highlight_keywords)), paper["published"])
+def sort_papers(
+    papers: list[dict], highlight_keywords: list[str], priority_keyword_groups: list[dict]
+) -> list[dict]:
+    def score(paper: dict) -> tuple[int, int, int, dt.datetime]:
+        priority_matches = grouped_keyword_matches(paper, priority_keyword_groups)
+        priority_group_hits = sum(1 for matches in priority_matches.values() if matches)
+        priority_hit_count = len(flattened_group_matches(priority_matches))
+        highlight_count = len(keyword_matches(paper, highlight_keywords))
+        return (priority_group_hits, priority_hit_count, highlight_count, paper["published"])
 
     return sorted(papers, key=score, reverse=True)
 
@@ -237,6 +251,12 @@ def render_digest(
             for group in config.get("require_keyword_groups", [])
         )
         lines.extend([f"Required groups: {required}", ""])
+    if config.get("priority_keyword_groups"):
+        priority = ", ".join(
+            group.get("name", "priority")
+            for group in config.get("priority_keyword_groups", [])
+        )
+        lines.extend([f"Priority groups: {priority}", ""])
     if config.get("require_author_keywords"):
         author_required = ", ".join(config.get("require_author_keywords", []))
         lines.extend([f"Required authors: {author_required}", ""])
@@ -262,6 +282,10 @@ def render_digest(
         required_matches = grouped_keyword_matches(
             paper, config.get("require_keyword_groups", [])
         )
+        priority_matches = grouped_keyword_matches(
+            paper, config.get("priority_keyword_groups", [])
+        )
+        priority_hits = flattened_group_matches(priority_matches)
         author_matches = author_keyword_matches(
             paper, config.get("require_author_keywords", [])
         )
@@ -280,6 +304,18 @@ def render_digest(
         )
         if matches:
             lines.append(f"- Keyword hits: {', '.join(matches)}")
+        lines.append(
+            "- Priority: AI/ML"
+            if priority_hits
+            else "- Priority: General CMS/ATLAS"
+        )
+        if priority_hits:
+            formatted_priority = "; ".join(
+                f"{name}: {', '.join(matches)}"
+                for name, matches in priority_matches.items()
+                if matches
+            )
+            lines.append(f"- Priority hits: {formatted_priority}")
         if required_matches:
             formatted_required = "; ".join(
                 f"{name}: {', '.join(matches)}"
@@ -353,9 +389,11 @@ def main() -> int:
             ignore_date=args.ignore_date,
         )
     ]
-    selected = sort_papers(selected, config.get("highlight_keywords", []))[
-        : int(config.get("max_results", 25))
-    ]
+    selected = sort_papers(
+        selected,
+        config.get("highlight_keywords", []),
+        config.get("priority_keyword_groups", []),
+    )[: int(config.get("max_results", 25))]
 
     digest = render_digest(
         title=config.get("digest_title", "Daily arXiv Digest"),

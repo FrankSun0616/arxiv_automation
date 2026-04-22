@@ -22,13 +22,14 @@ not already appeared in a previous digest.
 Edit `config.json`.
 
 - `categories`: arXiv categories to watch. The current default watches
-  `hep-ex` and `physics.data-an`.
+  `hep-ex`, `physics.ins-det`, and `physics.data-an`.
+- `priority_keyword_groups`: terms that push papers higher in the digest. The
+  current default prioritizes AI/ML methods.
 - `highlight_keywords`: terms that lift papers higher in the digest.
 - `require_keywords`: leave empty to include all papers from the categories, or
   add terms to require at least one match.
-- `require_keyword_groups`: grouped filters. A paper must match at least one
-  keyword from every group. The current default requires one ML/AI term and one
-  CMS/ATLAS term.
+- `require_keyword_groups`: grouped filters. Leave empty for the current broad
+  mode, where AI/ML is a priority but not a requirement.
 - `require_author_keywords`: author-list filters. The current default keeps
   only official CMS Collaboration or ATLAS Collaboration papers.
 - `exclude_keywords`: terms to hide.
@@ -124,6 +125,14 @@ Settings -> Actions -> General -> Workflow permissions -> Read and write permiss
 
 Branch protection can also block the bot commit; if that happens, use a private
 repo without branch protection for this automation.
+
+### Email format
+
+The email is sent as a multipart message:
+
+- a styled HTML digest with summary chips and paper cards
+- a plain-text Markdown fallback
+- the Markdown digest attached as `latest.md`
 
 ### 5. Test it
 
