@@ -1,9 +1,9 @@
 {
-  "digest_title": "Daily arXiv Digest: CMS/ATLAS",
+  "digest_title": "Daily arXiv Digest: Experimental HEP AI/ML + CMS/ATLAS",
   "timezone": "Asia/Hong_Kong",
   "lookback_days": 30,
   "max_results": 20,
-  "api_fetch_limit": 300,
+  "api_fetch_limit": 500,
   "output_dir": "digests",
   "state_file": "state/seen.json",
   "categories": [
@@ -15,6 +15,7 @@
     "ATLAS Collaboration",
     "CMS Collaboration"
   ],
+  "include_priority_matches_without_required_authors": true,
   "priority_keyword_groups": [
     {
       "name": "AI/ML priority",
@@ -43,6 +44,12 @@
     }
   ],
   "highlight_keywords": [
+    "LHCb",
+    "ALICE",
+    "Belle II",
+    "DUNE",
+    "IceCube",
+    "neutrino",
     "CMS",
     "ATLAS",
     "CMS Collaboration",

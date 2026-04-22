@@ -162,10 +162,36 @@ def author_keyword_matches(paper: dict, keywords: list[str]) -> list[str]:
     return [keyword for keyword in keywords if keyword_in_text(blob, keyword)]
 
 
+def collaboration_search_terms(keyword: str) -> list[str]:
+    terms = [keyword]
+    lowered = keyword.lower()
+    if "atlas" in lowered:
+        terms.append("ATLAS")
+    if "cms" in lowered:
+        terms.append("CMS")
+    return list(dict.fromkeys(terms))
+
+
+def collaboration_keyword_match(paper: dict, keyword: str) -> bool:
+    return bool(keyword_matches(paper, collaboration_search_terms(keyword)))
+
+
+def collaboration_name(keyword: str) -> str:
+    lowered = keyword.lower()
+    if "atlas" in lowered:
+        return "ATLAS"
+    if "cms" in lowered:
+        return "CMS"
+    return keyword
+
+
 def collaboration_label(paper: dict, collaboration_priority: list[str]) -> str:
     matches = author_keyword_matches(paper, collaboration_priority)
     if not matches:
-        return "CMS/ATLAS"
+        for keyword in collaboration_priority:
+            if collaboration_keyword_match(paper, keyword):
+                return f"{collaboration_name(keyword)}-related"
+        return "HEP AI/ML"
     match = matches[0].lower()
     if "atlas" in match:
         return "ATLAS"
@@ -177,13 +203,12 @@ def collaboration_label(paper: dict, collaboration_priority: list[str]) -> str:
 def collaboration_score(paper: dict, collaboration_priority: list[str]) -> int:
     if not collaboration_priority:
         return 0
-    matches = author_keyword_matches(paper, collaboration_priority)
-    if not matches:
-        return 0
-    first_match = matches[0]
     for index, keyword in enumerate(collaboration_priority):
-        if keyword == first_match:
-            return len(collaboration_priority) - index
+        base_score = (len(collaboration_priority) - index) * 2
+        if author_keyword_matches(paper, [keyword]):
+            return base_score
+        if collaboration_keyword_match(paper, keyword):
+            return base_score - 1
     return 0
 
 
@@ -203,6 +228,10 @@ def flattened_group_matches(group_matches: dict[str, list[str]]) -> list[str]:
     return list(seen)
 
 
+def has_priority_match(paper: dict, priority_keyword_groups: list[dict]) -> bool:
+    return bool(flattened_group_matches(grouped_keyword_matches(paper, priority_keyword_groups)))
+
+
 def should_include(
     paper: dict,
     *,
@@ -211,6 +240,8 @@ def should_include(
     require_keywords: list[str],
     require_keyword_groups: list[dict],
     require_author_keywords: list[str],
+    priority_keyword_groups: list[dict],
+    include_priority_matches_without_required_authors: bool,
     exclude_keywords: list[str],
     ignore_state: bool,
     ignore_date: bool,
@@ -225,7 +256,14 @@ def should_include(
         group_matches = grouped_keyword_matches(paper, require_keyword_groups)
         if any(not matches for matches in group_matches.values()):
             return False
-    if require_author_keywords and not author_keyword_matches(paper, require_author_keywords):
+    author_ok = not require_author_keywords or bool(
+        author_keyword_matches(paper, require_author_keywords)
+    )
+    priority_ok = (
+        include_priority_matches_without_required_authors
+        and has_priority_match(paper, priority_keyword_groups)
+    )
+    if require_author_keywords and not (author_ok or priority_ok):
         return False
     if exclude_keywords and keyword_matches(paper, exclude_keywords):
         return False
@@ -244,8 +282,8 @@ def sort_papers(
         priority_hit_count = len(flattened_group_matches(priority_matches))
         highlight_count = len(keyword_matches(paper, highlight_keywords))
         return (
-            collaboration_score(paper, collaboration_priority),
             priority_group_hits,
+            collaboration_score(paper, collaboration_priority),
             priority_hit_count,
             highlight_count,
             paper["published"],
@@ -297,6 +335,8 @@ def render_digest(
     if config.get("require_author_keywords"):
         author_required = ", ".join(config.get("require_author_keywords", []))
         lines.extend([f"Required authors: {author_required}", ""])
+    if config.get("include_priority_matches_without_required_authors"):
+        lines.extend(["Also includes: AI/ML experimental HEP papers from watched categories", ""])
 
     if not papers:
         lines.extend(
@@ -329,12 +369,20 @@ def render_digest(
         collaboration = collaboration_label(
             paper, config.get("collaboration_priority", [])
         )
+        inclusion_reasons = []
+        if priority_hits:
+            inclusion_reasons.append("AI/ML experimental HEP")
+        if author_matches:
+            inclusion_reasons.append("Official CMS/ATLAS")
+        if not inclusion_reasons:
+            inclusion_reasons.append("Experimental HEP")
         abstract = textwrap.fill(paper["summary"], width=96)
         lines.extend(
             [
                 f"## {index}. {paper['title']}",
                 "",
                 f"- Collaboration: {collaboration}",
+                f"- Inclusion: {'; '.join(inclusion_reasons)}",
                 f"- Authors: {format_authors(paper['authors'])}",
                 f"- Published: {published.strftime('%Y-%m-%d %H:%M %Z')}",
                 f"- Primary category: `{paper['primary_category']}`",
@@ -348,7 +396,7 @@ def render_digest(
         lines.append(
             "- Priority: AI/ML"
             if priority_hits
-            else "- Priority: General CMS/ATLAS"
+            else "- Priority: General HEP"
         )
         if priority_hits:
             formatted_priority = "; ".join(
@@ -425,6 +473,10 @@ def main() -> int:
             require_keywords=config.get("require_keywords", []),
             require_keyword_groups=config.get("require_keyword_groups", []),
             require_author_keywords=config.get("require_author_keywords", []),
+            priority_keyword_groups=config.get("priority_keyword_groups", []),
+            include_priority_matches_without_required_authors=bool(
+                config.get("include_priority_matches_without_required_authors", False)
+            ),
             exclude_keywords=config.get("exclude_keywords", []),
             ignore_state=args.ignore_state,
             ignore_date=args.ignore_date,

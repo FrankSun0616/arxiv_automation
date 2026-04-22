@@ -1,4 +1,4 @@
-name: Daily CMS/ATLAS HEP ML arXiv Gmail Digest
+name: Daily Experimental HEP AI/ML arXiv Gmail Digest
 
 on:
   schedule:

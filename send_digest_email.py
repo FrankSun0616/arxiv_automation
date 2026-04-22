@@ -92,6 +92,10 @@ def latex_to_text(value: str) -> str:
     text = text.replace("``", '"').replace("''", '"')
     text = re.sub(r"\$\$+", " ", text)
     text = text.replace("$", "")
+    text = text.replace("~", " ")
+    for source, target in replacements.items():
+        if not source[1:].isalpha():
+            text = text.replace(source, target)
     text = re.sub(r"\\(?:bar|overline)\{([^{}]+)\}", r"\1-bar", text)
     text = re.sub(r"\\(?:mathrm|textrm|text|mathbf|mathit|mathcal)\{([^{}]+)\}", r"\1", text)
     text = re.sub(r"\\sqrt\{([^{}]+)\}", r"sqrt(\1)", text)
@@ -157,11 +161,12 @@ def parse_papers(markdown: str) -> list[dict]:
             {
                 "title": title.strip(),
                 "collaboration": clean_inline_markdown(fields.get("Collaboration", "")),
+                "inclusion": clean_inline_markdown(fields.get("Inclusion", "")),
                 "authors": clean_inline_markdown(fields.get("Authors", "")),
                 "published": clean_inline_markdown(fields.get("Published", "")),
                 "primary_category": clean_inline_markdown(fields.get("Primary category", "")),
                 "categories": clean_inline_markdown(fields.get("Categories", "")),
-                "priority": clean_inline_markdown(fields.get("Priority", "General CMS/ATLAS")),
+                "priority": clean_inline_markdown(fields.get("Priority", "General HEP")),
                 "priority_hits": clean_inline_markdown(fields.get("Priority hits", "")),
                 "keyword_hits": keyword_hits,
                 "arxiv_url": links.get("arXiv", ""),
@@ -196,14 +201,22 @@ def link_button(label: str, url: str, *, primary: bool = False) -> str:
 
 def render_paper_card(paper: dict, index: int) -> str:
     is_priority = paper["priority"].lower().startswith("ai/ml")
-    is_atlas = paper.get("collaboration", "").upper() == "ATLAS"
+    collaboration = paper.get("collaboration", "")
+    collaboration_upper = collaboration.upper()
+    is_atlas = collaboration_upper.startswith("ATLAS")
+    is_cms = collaboration_upper.startswith("CMS")
     collaboration_badge = badge(
-        "ATLAS first" if is_atlas else paper.get("collaboration", "CMS/ATLAS"),
-        color="#1d4ed8" if is_atlas else "#374151",
-        background="#dbeafe" if is_atlas else "#f3f4f6",
+        collaboration if (is_atlas or is_cms) else "AI/ML HEP",
+        color="#1d4ed8" if is_atlas else ("#0f766e" if is_cms else "#7c2d12"),
+        background="#dbeafe" if is_atlas else ("#ccfbf1" if is_cms else "#fff4e6"),
+    )
+    inclusion_badge = badge(
+        paper.get("inclusion") or "Experimental HEP",
+        color="#4b5563",
+        background="#f8fafc",
     )
     priority_badge = badge(
-        "AI/ML priority" if is_priority else "General CMS/ATLAS",
+        "AI/ML priority" if is_priority else "General HEP",
         color="#7c2d12" if is_priority else "#374151",
         background="#fff4e6" if is_priority else "#f3f4f6",
     )
@@ -219,7 +232,7 @@ def render_paper_card(paper: dict, index: int) -> str:
         <h2 style="font-size:19px;line-height:1.35;margin:0 0 10px;color:#111827;">
           <a href="{html.escape(title_link, quote=True)}" style="color:#111827;text-decoration:none;">{html_text(paper["title"])}</a>
         </h2>
-        <div style="margin-bottom:8px;">{collaboration_badge}{priority_badge}</div>
+        <div style="margin-bottom:8px;">{collaboration_badge}{priority_badge}{inclusion_badge}</div>
         <p style="margin:0 0 4px;color:#374151;font-size:14px;"><strong>Authors:</strong> {html_text(paper["authors"])}</p>
         <p style="margin:0 0 4px;color:#374151;font-size:14px;"><strong>Published:</strong> {html_text(paper["published"])}</p>
         <p style="margin:0 0 12px;color:#374151;font-size:14px;"><strong>Primary category:</strong> {html_text(paper["primary_category"])}</p>
@@ -237,7 +250,9 @@ def render_html_email(markdown: str) -> str:
     metadata = parse_metadata(markdown)
     papers = parse_papers(markdown)
     priority_count = sum(1 for paper in papers if paper["priority"].lower().startswith("ai/ml"))
-    atlas_count = sum(1 for paper in papers if paper.get("collaboration", "").upper() == "ATLAS")
+    atlas_count = sum(1 for paper in papers if paper.get("collaboration", "").upper().startswith("ATLAS"))
+    cms_count = sum(1 for paper in papers if paper.get("collaboration", "").upper().startswith("CMS"))
+    other_hep_count = max(0, len(papers) - atlas_count - cms_count)
     general_count = max(0, len(papers) - priority_count)
     paper_cards = "\n".join(render_paper_card(paper, index) for index, paper in enumerate(papers, 1))
     if not paper_cards:
@@ -249,24 +264,26 @@ def render_html_email(markdown: str) -> str:
     return f"""<!doctype html>
 <html>
   <body style="margin:0;background:#f5f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;">
-    <div style="display:none;max-height:0;overflow:hidden;">{len(papers)} CMS/ATLAS arXiv papers, with AI/ML papers first.</div>
+    <div style="display:none;max-height:0;overflow:hidden;">{len(papers)} experimental HEP arXiv papers, with AI/ML papers first.</div>
     <main style="max-width:760px;margin:0 auto;padding:24px 14px;">
       <section style="background:#111827;color:#ffffff;border-radius:8px;padding:22px;margin-bottom:16px;">
-        <p style="margin:0 0 8px;font-size:13px;color:#cbd5e1;font-weight:700;">CMS/ATLAS arXiv digest</p>
+        <p style="margin:0 0 8px;font-size:13px;color:#cbd5e1;font-weight:700;">Experimental HEP arXiv digest</p>
         <h1 style="margin:0 0 12px;font-size:26px;line-height:1.2;">{html.escape(metadata.get("Title", "arXiv Digest"))}</h1>
         <p style="margin:0;color:#d1d5db;font-size:14px;">Generated {html.escape(metadata.get("Generated", ""))}</p>
       </section>
       <section style="display:block;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:16px;">
         {badge(f"{len(papers)} new papers", color="#075985", background="#e0f2fe")}
-        {badge(f"{atlas_count} ATLAS first", color="#1d4ed8", background="#dbeafe")}
+        {badge(f"{atlas_count} ATLAS", color="#1d4ed8", background="#dbeafe")}
+        {badge(f"{cms_count} CMS", color="#0f766e", background="#ccfbf1")}
+        {badge(f"{other_hep_count} other HEP", color="#7c2d12", background="#fff4e6")}
         {badge(f"{priority_count} AI/ML priority", color="#7c2d12", background="#fff4e6")}
         {badge(f"{general_count} general", color="#374151", background="#f3f4f6")}
         <p style="margin:8px 0 0;color:#4b5563;font-size:14px;">Window start: {html.escape(metadata.get("Window start", ""))}</p>
-        <p style="margin:4px 0 0;color:#4b5563;font-size:14px;">Required authors: {html.escape(metadata.get("Required authors", ""))}</p>
+        <p style="margin:4px 0 0;color:#4b5563;font-size:14px;">Includes official CMS/ATLAS papers plus AI/ML experimental HEP papers from watched arXiv categories.</p>
       </section>
       {paper_cards}
       <p style="color:#6b7280;font-size:12px;line-height:1.5;margin:18px 0 0;">
-        ATLAS papers are ranked first, with AI/ML papers prioritized inside each collaboration group. The Markdown digest is attached.
+        AI/ML experimental HEP papers are ranked first, with ATLAS prioritized inside that group and among general collaboration papers. The Markdown digest is attached.
       </p>
     </main>
   </body>

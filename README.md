@@ -5,7 +5,7 @@ This folder contains a small, dependency-free daily arXiv digest workflow.
 ## Run It
 
 ```bash
-cd /Volumes/Frank_T9/arxiv-paper-automation
+cd /Volumes/Frank_T9/arxiv_automation
 ./run_arxiv_digest.sh
 ```
 
@@ -27,13 +27,17 @@ Edit `config.json`.
   current default prioritizes AI/ML methods.
 - `collaboration_priority`: collaboration ordering. The current default puts
   ATLAS Collaboration papers before CMS Collaboration papers.
+- `include_priority_matches_without_required_authors`: when true, AI/ML
+  experimental HEP papers from the watched categories are included even if they
+  are not CMS or ATLAS papers.
 - `highlight_keywords`: terms that lift papers higher in the digest.
 - `require_keywords`: leave empty to include all papers from the categories, or
   add terms to require at least one match.
 - `require_keyword_groups`: grouped filters. Leave empty for the current broad
   mode, where AI/ML is a priority but not a requirement.
 - `require_author_keywords`: author-list filters. The current default keeps
-  only official CMS Collaboration or ATLAS Collaboration papers.
+  official CMS Collaboration or ATLAS Collaboration papers, while AI/ML
+  priority matches can also be included through the setting above.
 - `exclude_keywords`: terms to hide.
 - `lookback_days`: how far back the first run should look.
 - `max_results`: maximum papers in one digest.
@@ -57,7 +61,7 @@ Print the generated digest in the terminal:
 Use this command from a scheduler or Codex automation:
 
 ```bash
-/Volumes/Frank_T9/arxiv-paper-automation/run_arxiv_digest.sh
+/Volumes/Frank_T9/arxiv_automation/run_arxiv_digest.sh
 ```
 
 ## GitHub Actions + Gmail
@@ -142,7 +146,7 @@ The email is sent as a multipart message:
 On GitHub, go to:
 
 ```text
-Actions -> Daily CMS/ATLAS HEP ML arXiv Gmail Digest -> Run workflow
+Actions -> Daily Experimental HEP AI/ML arXiv Gmail Digest -> Run workflow
 ```
 
 Use `dry_run=true` first to confirm the workflow runs in GitHub Actions without
