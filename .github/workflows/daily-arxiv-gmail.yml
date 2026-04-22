@@ -14,6 +14,14 @@ on:
         options:
           - "true"
           - "false"
+      preview_all:
+        description: "Manual test only: include already-seen papers and skip state commit"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: write
@@ -35,11 +43,11 @@ jobs:
           python-version: "3.13"
 
       - name: Generate arXiv digest
-        if: github.event_name != 'workflow_dispatch' || inputs.dry_run != 'true'
+        if: github.event_name != 'workflow_dispatch' || (inputs.dry_run != 'true' && inputs.preview_all != 'true')
         run: bash run_arxiv_digest.sh
 
-      - name: Generate arXiv digest for dry run
-        if: github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true'
+      - name: Generate arXiv digest for manual preview
+        if: github.event_name == 'workflow_dispatch' && (inputs.dry_run == 'true' || inputs.preview_all == 'true')
         run: bash run_arxiv_digest.sh --ignore-state --ignore-date
 
       - name: Send digest to Gmail
@@ -59,7 +67,7 @@ jobs:
         run: python3 send_digest_email.py --dry-run
 
       - name: Commit seen-paper state
-        if: github.event_name != 'workflow_dispatch' || inputs.dry_run != 'true'
+        if: github.event_name != 'workflow_dispatch' || (inputs.dry_run != 'true' && inputs.preview_all != 'true')
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

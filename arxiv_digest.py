@@ -162,6 +162,31 @@ def author_keyword_matches(paper: dict, keywords: list[str]) -> list[str]:
     return [keyword for keyword in keywords if keyword_in_text(blob, keyword)]
 
 
+def collaboration_label(paper: dict, collaboration_priority: list[str]) -> str:
+    matches = author_keyword_matches(paper, collaboration_priority)
+    if not matches:
+        return "CMS/ATLAS"
+    match = matches[0].lower()
+    if "atlas" in match:
+        return "ATLAS"
+    if "cms" in match:
+        return "CMS"
+    return matches[0]
+
+
+def collaboration_score(paper: dict, collaboration_priority: list[str]) -> int:
+    if not collaboration_priority:
+        return 0
+    matches = author_keyword_matches(paper, collaboration_priority)
+    if not matches:
+        return 0
+    first_match = matches[0]
+    for index, keyword in enumerate(collaboration_priority):
+        if keyword == first_match:
+            return len(collaboration_priority) - index
+    return 0
+
+
 def grouped_keyword_matches(paper: dict, groups: list[dict]) -> dict[str, list[str]]:
     matches = {}
     for group in groups:
@@ -208,14 +233,23 @@ def should_include(
 
 
 def sort_papers(
-    papers: list[dict], highlight_keywords: list[str], priority_keyword_groups: list[dict]
+    papers: list[dict],
+    highlight_keywords: list[str],
+    priority_keyword_groups: list[dict],
+    collaboration_priority: list[str],
 ) -> list[dict]:
-    def score(paper: dict) -> tuple[int, int, int, dt.datetime]:
+    def score(paper: dict) -> tuple[int, int, int, int, dt.datetime]:
         priority_matches = grouped_keyword_matches(paper, priority_keyword_groups)
         priority_group_hits = sum(1 for matches in priority_matches.values() if matches)
         priority_hit_count = len(flattened_group_matches(priority_matches))
         highlight_count = len(keyword_matches(paper, highlight_keywords))
-        return (priority_group_hits, priority_hit_count, highlight_count, paper["published"])
+        return (
+            collaboration_score(paper, collaboration_priority),
+            priority_group_hits,
+            priority_hit_count,
+            highlight_count,
+            paper["published"],
+        )
 
     return sorted(papers, key=score, reverse=True)
 
@@ -257,6 +291,9 @@ def render_digest(
             for group in config.get("priority_keyword_groups", [])
         )
         lines.extend([f"Priority groups: {priority}", ""])
+    if config.get("collaboration_priority"):
+        collaboration_priority = ", ".join(config.get("collaboration_priority", []))
+        lines.extend([f"Collaboration priority: {collaboration_priority}", ""])
     if config.get("require_author_keywords"):
         author_required = ", ".join(config.get("require_author_keywords", []))
         lines.extend([f"Required authors: {author_required}", ""])
@@ -289,11 +326,15 @@ def render_digest(
         author_matches = author_keyword_matches(
             paper, config.get("require_author_keywords", [])
         )
+        collaboration = collaboration_label(
+            paper, config.get("collaboration_priority", [])
+        )
         abstract = textwrap.fill(paper["summary"], width=96)
         lines.extend(
             [
                 f"## {index}. {paper['title']}",
                 "",
+                f"- Collaboration: {collaboration}",
                 f"- Authors: {format_authors(paper['authors'])}",
                 f"- Published: {published.strftime('%Y-%m-%d %H:%M %Z')}",
                 f"- Primary category: `{paper['primary_category']}`",
@@ -393,6 +434,7 @@ def main() -> int:
         selected,
         config.get("highlight_keywords", []),
         config.get("priority_keyword_groups", []),
+        config.get("collaboration_priority", []),
     )[: int(config.get("max_results", 25))]
 
     digest = render_digest(

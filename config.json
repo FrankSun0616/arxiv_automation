@@ -11,6 +11,10 @@
     "physics.ins-det",
     "physics.data-an"
   ],
+  "collaboration_priority": [
+    "ATLAS Collaboration",
+    "CMS Collaboration"
+  ],
   "priority_keyword_groups": [
     {
       "name": "AI/ML priority",

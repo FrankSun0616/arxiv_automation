@@ -25,6 +25,8 @@ Edit `config.json`.
   `hep-ex`, `physics.ins-det`, and `physics.data-an`.
 - `priority_keyword_groups`: terms that push papers higher in the digest. The
   current default prioritizes AI/ML methods.
+- `collaboration_priority`: collaboration ordering. The current default puts
+  ATLAS Collaboration papers before CMS Collaboration papers.
 - `highlight_keywords`: terms that lift papers higher in the digest.
 - `require_keywords`: leave empty to include all papers from the categories, or
   add terms to require at least one match.
@@ -131,6 +133,7 @@ repo without branch protection for this automation.
 The email is sent as a multipart message:
 
 - a styled HTML digest with summary chips and paper cards
+- cleaned-up math/LaTeX text for email readability
 - a plain-text Markdown fallback
 - the Markdown digest attached as `latest.md`
 
@@ -144,6 +147,8 @@ Actions -> Daily CMS/ATLAS HEP ML arXiv Gmail Digest -> Run workflow
 
 Use `dry_run=true` first to confirm the workflow runs in GitHub Actions without
 sending email or changing `state/seen.json`. After the Gmail secrets are set,
-run it again with `dry_run=false` to send one real test email.
+run it again with `dry_run=false` to send one real test email. For a rich manual
+test that includes already-seen papers without changing state, use
+`dry_run=false` and `preview_all=true`.
 
 If both runs succeed, the daily scheduled email is set.
