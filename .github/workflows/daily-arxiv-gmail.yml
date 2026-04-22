@@ -36,11 +36,11 @@ jobs:
 
       - name: Generate arXiv digest
         if: github.event_name != 'workflow_dispatch' || inputs.dry_run != 'true'
-        run: ./run_arxiv_digest.sh
+        run: bash run_arxiv_digest.sh
 
       - name: Generate arXiv digest for dry run
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true'
-        run: ./run_arxiv_digest.sh --ignore-state --ignore-date
+        run: bash run_arxiv_digest.sh --ignore-state --ignore-date
 
       - name: Send digest to Gmail
         if: github.event_name != 'workflow_dispatch' || inputs.dry_run != 'true'
