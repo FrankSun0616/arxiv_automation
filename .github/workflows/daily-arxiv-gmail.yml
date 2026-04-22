@@ -5,6 +5,15 @@ on:
     - cron: "17 8 * * *"
       timezone: "Asia/Hong_Kong"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Generate the digest in GitHub Actions without sending email"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
 permissions:
   contents: write
@@ -26,16 +35,31 @@ jobs:
           python-version: "3.13"
 
       - name: Generate arXiv digest
+        if: github.event_name != 'workflow_dispatch' || inputs.dry_run != 'true'
         run: ./run_arxiv_digest.sh
 
+      - name: Generate arXiv digest for dry run
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true'
+        run: ./run_arxiv_digest.sh --ignore-state --ignore-date
+
       - name: Send digest to Gmail
+        if: github.event_name != 'workflow_dispatch' || inputs.dry_run != 'true'
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ARXIV_DIGEST_RECIPIENTS: ${{ secrets.ARXIV_DIGEST_RECIPIENTS }}
         run: python3 send_digest_email.py
 
+      - name: Build email in dry-run mode
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true'
+        env:
+          GMAIL_USER: dry-run@example.com
+          GMAIL_APP_PASSWORD: dry-run
+          ARXIV_DIGEST_RECIPIENTS: dry-run@example.com
+        run: python3 send_digest_email.py --dry-run
+
       - name: Commit seen-paper state
+        if: github.event_name != 'workflow_dispatch' || inputs.dry_run != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

@@ -133,4 +133,8 @@ On GitHub, go to:
 Actions -> Daily CMS/ATLAS HEP ML arXiv Gmail Digest -> Run workflow
 ```
 
-If it succeeds, the daily scheduled email is set.
+Use `dry_run=true` first to confirm the workflow runs in GitHub Actions without
+sending email or changing `state/seen.json`. After the Gmail secrets are set,
+run it again with `dry_run=false` to send one real test email.
+
+If both runs succeed, the daily scheduled email is set.
