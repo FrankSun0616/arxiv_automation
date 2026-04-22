@@ -1,0 +1,70 @@
+{
+  "digest_title": "Daily arXiv Digest: CMS/ATLAS HEP ML",
+  "timezone": "Asia/Hong_Kong",
+  "lookback_days": 30,
+  "max_results": 20,
+  "api_fetch_limit": 200,
+  "output_dir": "digests",
+  "state_file": "state/seen.json",
+  "categories": [
+    "hep-ex",
+    "physics.data-an"
+  ],
+  "highlight_keywords": [
+    "CMS",
+    "ATLAS",
+    "CMS Collaboration",
+    "ATLAS Collaboration",
+    "CERN",
+    "LHC",
+    "Higgs",
+    "trigger",
+    "jet",
+    "anomaly detection",
+    "machine learning",
+    "artificial intelligence",
+    "deep learning",
+    "neural network",
+    "graph neural network",
+    "transformer",
+    "boosted decision tree",
+    "BDT"
+  ],
+  "require_keyword_groups": [
+    {
+      "name": "ML/AI methods",
+      "keywords": [
+        "machine learning",
+        "artificial intelligence",
+        "AI",
+        "ML",
+        "deep learning",
+        "neural network",
+        "graph neural network",
+        "transformer",
+        "boosted decision tree",
+        "BDT",
+        "anomaly detection",
+        "classification",
+        "regression"
+      ]
+    },
+    {
+      "name": "CMS or ATLAS",
+      "keywords": [
+        "CMS",
+        "ATLAS",
+        "CMS Collaboration",
+        "ATLAS Collaboration",
+        "Compact Muon Solenoid",
+        "A Toroidal LHC ApparatuS"
+      ]
+    }
+  ],
+  "require_author_keywords": [
+    "CMS Collaboration",
+    "ATLAS Collaboration"
+  ],
+  "require_keywords": [],
+  "exclude_keywords": []
+}

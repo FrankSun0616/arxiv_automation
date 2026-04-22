@@ -1,0 +1,48 @@
+name: Daily CMS/ATLAS HEP ML arXiv Gmail Digest
+
+on:
+  schedule:
+    - cron: "17 8 * * *"
+      timezone: "Asia/Hong_Kong"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-arxiv-gmail
+  cancel-in-progress: false
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Generate arXiv digest
+        run: ./run_arxiv_digest.sh
+
+      - name: Send digest to Gmail
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ARXIV_DIGEST_RECIPIENTS: ${{ secrets.ARXIV_DIGEST_RECIPIENTS }}
+        run: python3 send_digest_email.py
+
+      - name: Commit seen-paper state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/seen.json
+          if git diff --cached --quiet; then
+            echo "No state changes to commit."
+          else
+            git commit -m "Update arXiv digest state"
+            git push
+          fi
