@@ -5,11 +5,15 @@ import argparse
 import datetime as dt
 import json
 import re
+import socket
 import sys
 import textwrap
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -17,6 +21,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 ATOM = "{http://www.w3.org/2005/Atom}"
 ARXIV = "{http://arxiv.org/schemas/atom}"
 API_URL = "https://export.arxiv.org/api/query"
+RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
 
 
 def load_config(path: Path) -> dict:
@@ -70,7 +75,44 @@ def build_query(categories: list[str]) -> str:
     return "(" + " OR ".join(f"cat:{category}" for category in categories) + ")"
 
 
-def fetch_feed(query: str, max_results: int) -> ET.Element:
+def retry_after_seconds(headers) -> int | None:
+    if not headers:
+        return None
+    raw = headers.get("Retry-After")
+    if not raw:
+        return None
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        try:
+            retry_at = parsedate_to_datetime(raw)
+        except (TypeError, ValueError, IndexError):
+            return None
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=dt.timezone.utc)
+        return max(
+            0,
+            int(
+                (retry_at - dt.datetime.now(dt.timezone.utc)).total_seconds()
+            ),
+        )
+
+
+def retry_delay_seconds(*, attempt: int, base_delay: int, headers=None) -> int:
+    retry_after = retry_after_seconds(headers)
+    if retry_after is not None:
+        return retry_after
+    return max(0, base_delay * (2 ** (attempt - 1)))
+
+
+def fetch_feed(
+    query: str,
+    max_results: int,
+    *,
+    timeout_seconds: int = 90,
+    retry_attempts: int = 4,
+    retry_delay_base_seconds: int = 15,
+) -> ET.Element:
     params = {
         "search_query": query,
         "start": "0",
@@ -86,8 +128,39 @@ def fetch_feed(query: str, max_results: int) -> ET.Element:
             "(daily personal research digest)"
         },
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return ET.fromstring(response.read())
+    attempts = max(1, retry_attempts)
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                return ET.fromstring(response.read())
+        except urllib.error.HTTPError as exc:
+            if exc.code not in RETRYABLE_HTTP_STATUS or attempt >= attempts:
+                raise
+            delay = retry_delay_seconds(
+                attempt=attempt,
+                base_delay=retry_delay_base_seconds,
+                headers=exc.headers,
+            )
+            print(
+                f"arxiv_digest.py: arXiv API returned HTTP {exc.code}; "
+                f"retrying in {delay}s (attempt {attempt}/{attempts})",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+        except (urllib.error.URLError, TimeoutError, socket.timeout, ET.ParseError) as exc:
+            if attempt >= attempts:
+                raise
+            delay = retry_delay_seconds(
+                attempt=attempt,
+                base_delay=retry_delay_base_seconds,
+            )
+            print(
+                f"arxiv_digest.py: transient fetch failure ({exc}); "
+                f"retrying in {delay}s (attempt {attempt}/{attempts})",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+    raise RuntimeError("arXiv feed fetch exhausted retries without returning a response")
 
 
 def entry_text(entry: ET.Element, name: str) -> str:
@@ -456,7 +529,13 @@ def main() -> int:
     since = now.astimezone(dt.timezone.utc) - dt.timedelta(days=int(config.get("lookback_days", 1)))
 
     query = build_query(config.get("categories", []))
-    feed = fetch_feed(query, int(config.get("api_fetch_limit", 100)))
+    feed = fetch_feed(
+        query,
+        int(config.get("api_fetch_limit", 100)),
+        timeout_seconds=int(config.get("api_timeout_seconds", 90)),
+        retry_attempts=int(config.get("api_retry_attempts", 4)),
+        retry_delay_base_seconds=int(config.get("api_retry_delay_seconds", 15)),
+    )
     entries = feed.findall(f"{ATOM}entry")
     papers = [parse_entry(entry) for entry in entries]
 

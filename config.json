@@ -3,7 +3,10 @@
   "timezone": "Asia/Hong_Kong",
   "lookback_days": 30,
   "max_results": 20,
-  "api_fetch_limit": 500,
+  "api_fetch_limit": 300,
+  "api_timeout_seconds": 120,
+  "api_retry_attempts": 6,
+  "api_retry_delay_seconds": 15,
   "output_dir": "digests",
   "state_file": "state/seen.json",
   "categories": [

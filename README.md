@@ -31,6 +31,12 @@ Edit `config.json`.
   experimental HEP papers from the watched categories are included even if they
   are not CMS or ATLAS papers.
 - `highlight_keywords`: terms that lift papers higher in the digest.
+- `api_timeout_seconds`: network timeout for the arXiv API request.
+- `api_retry_attempts`: how many times the arXiv fetch should retry after
+  transient failures such as rate limits or timeouts.
+- `api_retry_delay_seconds`: base retry delay for the arXiv fetch. Later
+  retries back off exponentially, and `Retry-After` is respected when arXiv
+  provides it.
 - `require_keywords`: leave empty to include all papers from the categories, or
   add terms to require at least one match.
 - `require_keyword_groups`: grouped filters. Leave empty for the current broad
