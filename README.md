@@ -82,6 +82,9 @@ Gmail every day. The workflow file is:
 It runs at 08:17 Hong Kong time every day and can also be started manually from
 the GitHub Actions tab.
 
+If the main arXiv API is transiently rate-limited or slow, the digest retries
+with backoff and then falls back to the per-category arXiv RSS feeds.
+
 ### 1. Create a GitHub repository
 
 From this folder:

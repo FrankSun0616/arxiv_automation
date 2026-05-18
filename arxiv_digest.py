@@ -21,6 +21,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 ATOM = "{http://www.w3.org/2005/Atom}"
 ARXIV = "{http://arxiv.org/schemas/atom}"
 API_URL = "https://export.arxiv.org/api/query"
+RSS_URL_TEMPLATE = "https://rss.arxiv.org/rss/{category}"
+RSS_DC = "{http://purl.org/dc/elements/1.1/}"
 RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
 
 
@@ -105,27 +107,19 @@ def retry_delay_seconds(*, attempt: int, base_delay: int, headers=None) -> int:
     return max(0, base_delay * (2 ** (attempt - 1)))
 
 
-def fetch_feed(
-    query: str,
-    max_results: int,
+def fetch_xml(
+    url: str,
     *,
+    user_agent: str,
     timeout_seconds: int = 90,
     retry_attempts: int = 4,
     retry_delay_base_seconds: int = 15,
+    label: str = "arXiv request",
 ) -> ET.Element:
-    params = {
-        "search_query": query,
-        "start": "0",
-        "max_results": str(max_results),
-        "sortBy": "submittedDate",
-        "sortOrder": "descending",
-    }
-    url = f"{API_URL}?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "frank-arxiv-paper-automation/1.0 "
-            "(daily personal research digest)"
+            "User-Agent": user_agent
         },
     )
     attempts = max(1, retry_attempts)
@@ -142,7 +136,7 @@ def fetch_feed(
                 headers=exc.headers,
             )
             print(
-                f"arxiv_digest.py: arXiv API returned HTTP {exc.code}; "
+                f"arxiv_digest.py: {label} returned HTTP {exc.code}; "
                 f"retrying in {delay}s (attempt {attempt}/{attempts})",
                 file=sys.stderr,
             )
@@ -155,12 +149,42 @@ def fetch_feed(
                 base_delay=retry_delay_base_seconds,
             )
             print(
-                f"arxiv_digest.py: transient fetch failure ({exc}); "
+                f"arxiv_digest.py: transient {label} failure ({exc}); "
                 f"retrying in {delay}s (attempt {attempt}/{attempts})",
                 file=sys.stderr,
             )
             time.sleep(delay)
-    raise RuntimeError("arXiv feed fetch exhausted retries without returning a response")
+    raise RuntimeError(f"{label} exhausted retries without returning a response")
+
+
+def fetch_feed(
+    query: str,
+    max_results: int,
+    *,
+    timeout_seconds: int = 90,
+    retry_attempts: int = 4,
+    retry_delay_base_seconds: int = 15,
+) -> ET.Element:
+    params = {
+        "search_query": query,
+        "start": "0",
+        "max_results": str(max_results),
+        "sortBy": "submittedDate",
+        "sortOrder": "descending",
+    }
+    url = f"{API_URL}?{urllib.parse.urlencode(params)}"
+    return fetch_xml(
+        url,
+        user_agent=(
+            "frank-arxiv-paper-automation/1.0 "
+            "(daily personal research digest; "
+            "+https://github.com/FrankSun0616/arxiv_automation)"
+        ),
+        timeout_seconds=timeout_seconds,
+        retry_attempts=retry_attempts,
+        retry_delay_base_seconds=retry_delay_base_seconds,
+        label="arXiv API",
+    )
 
 
 def entry_text(entry: ET.Element, name: str) -> str:
@@ -202,6 +226,73 @@ def parse_entry(entry: ET.Element) -> dict:
         "arxiv_url": arxiv_url,
         "pdf_url": pdf_url,
     }
+
+
+def parse_rss_item(item: ET.Element, fallback_category: str) -> dict:
+    arxiv_url = collapse(item.findtext("link"))
+    creator = collapse(item.findtext(f"{RSS_DC}creator"))
+    categories = [
+        collapse(category.text)
+        for category in item.findall("category")
+        if collapse(category.text)
+    ]
+    description = collapse(item.findtext("description"))
+    abstract_match = re.search(r"Abstract:\s*(.*)$", description, flags=re.DOTALL)
+    summary = collapse(abstract_match.group(1) if abstract_match else description)
+    published = parsedate_to_datetime(collapse(item.findtext("pubDate")))
+    if published.tzinfo is None:
+        published = published.replace(tzinfo=dt.timezone.utc)
+    primary_category = categories[0] if categories else fallback_category
+    return {
+        "id": canonical_arxiv_id(arxiv_url),
+        "title": collapse(item.findtext("title")),
+        "summary": summary,
+        "published": published,
+        "updated": published,
+        "authors": [creator] if creator else [],
+        "categories": categories or [fallback_category],
+        "primary_category": primary_category,
+        "arxiv_url": arxiv_url,
+        "pdf_url": arxiv_url.replace("/abs/", "/pdf/") + ".pdf" if arxiv_url else "",
+    }
+
+
+def fetch_papers_from_rss(
+    categories: list[str],
+    *,
+    timeout_seconds: int,
+    retry_attempts: int,
+    retry_delay_base_seconds: int,
+) -> list[dict]:
+    papers_by_id = {}
+    for category in categories:
+        url = RSS_URL_TEMPLATE.format(category=urllib.parse.quote(category, safe=""))
+        root = fetch_xml(
+            url,
+            user_agent=(
+                "frank-arxiv-paper-automation/1.0 "
+                "(daily personal research digest RSS fallback; "
+                "+https://github.com/FrankSun0616/arxiv_automation)"
+            ),
+            timeout_seconds=timeout_seconds,
+            retry_attempts=retry_attempts,
+            retry_delay_base_seconds=retry_delay_base_seconds,
+            label=f"arXiv RSS {category}",
+        )
+        channel = root.find("channel")
+        if channel is None:
+            continue
+        for item in channel.findall("item"):
+            paper = parse_rss_item(item, category)
+            existing = papers_by_id.get(paper["id"])
+            if existing is None:
+                papers_by_id[paper["id"]] = paper
+                continue
+            merged_categories = existing["categories"] + paper["categories"]
+            existing["categories"] = list(dict.fromkeys(merged_categories))
+            if existing["primary_category"] not in existing["categories"]:
+                existing["primary_category"] = existing["categories"][0]
+    return list(papers_by_id.values())
 
 
 def search_blob(paper: dict) -> str:
@@ -529,15 +620,38 @@ def main() -> int:
     since = now.astimezone(dt.timezone.utc) - dt.timedelta(days=int(config.get("lookback_days", 1)))
 
     query = build_query(config.get("categories", []))
-    feed = fetch_feed(
-        query,
-        int(config.get("api_fetch_limit", 100)),
-        timeout_seconds=int(config.get("api_timeout_seconds", 90)),
-        retry_attempts=int(config.get("api_retry_attempts", 4)),
-        retry_delay_base_seconds=int(config.get("api_retry_delay_seconds", 15)),
-    )
-    entries = feed.findall(f"{ATOM}entry")
-    papers = [parse_entry(entry) for entry in entries]
+    timeout_seconds = int(config.get("api_timeout_seconds", 90))
+    retry_attempts = int(config.get("api_retry_attempts", 4))
+    retry_delay_base_seconds = int(config.get("api_retry_delay_seconds", 15))
+    try:
+        feed = fetch_feed(
+            query,
+            int(config.get("api_fetch_limit", 100)),
+            timeout_seconds=timeout_seconds,
+            retry_attempts=retry_attempts,
+            retry_delay_base_seconds=retry_delay_base_seconds,
+        )
+        entries = feed.findall(f"{ATOM}entry")
+        papers = [parse_entry(entry) for entry in entries]
+    except (
+        RuntimeError,
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        TimeoutError,
+        socket.timeout,
+        ET.ParseError,
+    ) as exc:
+        print(
+            f"arxiv_digest.py: API fetch failed ({exc}); falling back to category RSS feeds",
+            file=sys.stderr,
+        )
+        papers = fetch_papers_from_rss(
+            config.get("categories", []),
+            timeout_seconds=timeout_seconds,
+            retry_attempts=retry_attempts,
+            retry_delay_base_seconds=retry_delay_base_seconds,
+        )
+        entries = papers
 
     state_path = base_dir / config.get("state_file", "state/seen.json")
     state = load_state(state_path)

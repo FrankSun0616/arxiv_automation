@@ -20,6 +20,22 @@ ATOM_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
 </feed>
 """
 
+RSS_FEED = b"""<?xml version='1.0' encoding='UTF-8'?>
+<rss xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0">
+  <channel>
+    <item>
+      <title>RSS test paper</title>
+      <link>https://arxiv.org/abs/2605.12345</link>
+      <description>arXiv:2605.12345v1 Announce Type: new Abstract: RSS abstract text.</description>
+      <category>hep-ex</category>
+      <category>physics.data-an</category>
+      <pubDate>Mon, 18 May 2026 00:00:00 +0000</pubDate>
+      <dc:creator>ATLAS Collaboration</dc:creator>
+    </item>
+  </channel>
+</rss>
+"""
+
 
 class FakeResponse:
     def __init__(self, payload: bytes):
@@ -116,6 +132,27 @@ class FetchFeedRetryTests(unittest.TestCase):
         self.assertEqual(feed.tag, f"{arxiv_digest.ATOM}feed")
         self.assertEqual(attempts["count"], 2)
         sleep_mock.assert_called_once_with(0)
+
+    def test_fetch_papers_from_rss_parses_and_deduplicates(self):
+        def fake_urlopen(request, timeout):
+            return FakeResponse(RSS_FEED)
+
+        with mock.patch("arxiv_digest.urllib.request.urlopen", side_effect=fake_urlopen):
+            papers = arxiv_digest.fetch_papers_from_rss(
+                ["hep-ex", "physics.data-an"],
+                timeout_seconds=1,
+                retry_attempts=1,
+                retry_delay_base_seconds=0,
+            )
+
+        self.assertEqual(len(papers), 1)
+        paper = papers[0]
+        self.assertEqual(paper["id"], "2605.12345")
+        self.assertEqual(paper["title"], "RSS test paper")
+        self.assertIn("RSS abstract text.", paper["summary"])
+        self.assertIn("hep-ex", paper["categories"])
+        self.assertIn("physics.data-an", paper["categories"])
+        self.assertEqual(paper["authors"], ["ATLAS Collaboration"])
 
 
 if __name__ == "__main__":
