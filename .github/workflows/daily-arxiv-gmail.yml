@@ -71,8 +71,11 @@ jobs:
           fi
           # Ensure the label exists (idempotent); never fail the run over labelling.
           gh label create digest --color 1f6feb --description "Daily arXiv digest" --force >/dev/null 2>&1 || true
+          # Prefer the colorful issue body; fall back to the plain digest if absent.
+          body_file=digests/latest-issue.md
+          [ -f "$body_file" ] || body_file=digests/latest.md
           # Creating the issue with the digest body is the critical step — fail loudly if it breaks.
-          url=$(gh issue create --title "$title" --body-file digests/latest.md)
+          url=$(gh issue create --title "$title" --body-file "$body_file")
           echo "Created issue: $url"
           num=${url##*/}
           # Best-effort: label + assign (assignment triggers the GitHub Mobile push).

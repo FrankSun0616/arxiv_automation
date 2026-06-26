@@ -591,6 +591,148 @@ def render_digest(
     return "\n".join(lines)
 
 
+def shields_escape(value: str) -> str:
+    text = (value or "").replace("-", "--").replace("_", "__").replace(" ", "_")
+    return urllib.parse.quote(text, safe="_")
+
+
+def shields_badge(label: str, message: str, color: str, *, style: str = "flat-square") -> str:
+    if label:
+        path = f"{shields_escape(label)}-{shields_escape(message)}-{color}"
+    else:
+        path = f"{shields_escape(message)}-{color}"
+    alt = collapse(f"{label} {message}")
+    return f"![{alt}](https://img.shields.io/badge/{path}?style={style})"
+
+
+def collaboration_style(label: str) -> tuple[str, str]:
+    upper = (label or "").upper()
+    if upper.startswith("ATLAS"):
+        return "🔵", "1d4ed8"
+    if upper.startswith("CMS"):
+        return "🟢", "0f766e"
+    return "🟠", "b45309"
+
+
+def render_issue_digest(
+    *,
+    title: str,
+    papers: list[dict],
+    config: dict,
+    query: str,
+    generated_at: dt.datetime,
+    since: dt.datetime,
+    highlight_keywords: list[str],
+) -> str:
+    collaboration_priority = config.get("collaboration_priority", [])
+    priority_groups = config.get("priority_keyword_groups", [])
+    labels = [collaboration_label(paper, collaboration_priority) for paper in papers]
+    atlas = sum(1 for label in labels if label.upper().startswith("ATLAS"))
+    cms = sum(1 for label in labels if label.upper().startswith("CMS"))
+    ai_ml = sum(1 for paper in papers if has_priority_match(paper, priority_groups))
+    lines = [
+        f"# 🔬 {title}",
+        "",
+        "  ".join(
+            [
+                shields_badge("", f"{len(papers)} new papers", "0a7ea4", style="for-the-badge"),
+                shields_badge("ATLAS", str(atlas), "1d4ed8"),
+                shields_badge("CMS", str(cms), "0f766e"),
+                shields_badge("AI/ML", str(ai_ml), "b45309"),
+            ]
+        ),
+        "",
+        "> [!NOTE]",
+        "> 🗓️ **Generated** "
+        + generated_at.strftime("%Y-%m-%d %H:%M %Z")
+        + "  ·  ⏪ **Since** "
+        + since.astimezone(generated_at.tzinfo).strftime("%Y-%m-%d")
+        + "  ·  🔎 **Query** `"
+        + query
+        + "`",
+        "",
+        "---",
+        "",
+    ]
+    if not papers:
+        lines.extend(
+            [
+                "> [!WARNING]",
+                "> No new papers matched the current configuration. "
+                "Try widening `lookback_days` or `categories` in `config.json`.",
+                "",
+            ]
+        )
+        return "\n".join(lines)
+
+    for index, paper in enumerate(papers, start=1):
+        label = collaboration_label(paper, collaboration_priority)
+        emoji, color = collaboration_style(label)
+        priority_hits = flattened_group_matches(
+            grouped_keyword_matches(paper, priority_groups)
+        )
+        author_matches = author_keyword_matches(
+            paper, config.get("require_author_keywords", [])
+        )
+        is_priority = bool(priority_hits)
+        if author_matches:
+            alert, priority_emoji, priority_label, priority_color = (
+                "IMPORTANT",
+                "🏛️",
+                "Official CMS/ATLAS",
+                "6d28d9",
+            )
+        elif is_priority:
+            alert, priority_emoji, priority_label, priority_color = (
+                "TIP",
+                "🤖",
+                "AI/ML priority",
+                "b45309",
+            )
+        else:
+            alert, priority_emoji, priority_label, priority_color = (
+                "NOTE",
+                "🧪",
+                "Experimental HEP",
+                "475569",
+            )
+        published = paper["published"].astimezone(generated_at.tzinfo)
+        hits = keyword_matches(paper, highlight_keywords)
+        badges = [
+            shields_badge("", label, color),
+            shields_badge("", priority_label, priority_color),
+        ] + [shields_badge("", hit, "64748b") for hit in hits[:6]]
+        links = f"🔗 **[arXiv]({paper['arxiv_url']})**"
+        if paper["pdf_url"]:
+            links += f"  ·  📄 **[PDF]({paper['pdf_url']})**"
+        lines.extend(
+            [
+                f"## {index}. {paper['title']}",
+                "",
+                f"> [!{alert}]",
+                f"> {emoji} **{label}**  ·  {priority_emoji} **{priority_label}**",
+                "",
+                "  ".join(badges),
+                "",
+                f"- 👥 **Authors:** {format_authors(paper['authors'])}",
+                f"- 🗓️ **Published:** {published.strftime('%Y-%m-%d %H:%M %Z')}",
+                "- 🏷️ **Categories:** "
+                + " ".join(f"`{category}`" for category in paper["categories"]),
+                "",
+                paper["summary"],
+                "",
+                links,
+                "",
+                "---",
+                "",
+            ]
+        )
+    lines.extend(
+        ["_Edit `config.json` to change categories, keywords, and digest size._", ""]
+    )
+    return "\n".join(lines)
+
+
 def write_outputs(base_dir: Path, output_dir: str, digest: str, now: dt.datetime) -> Path:
     directory = base_dir / output_dir
     directory.mkdir(parents=True, exist_ok=True)
@@ -692,6 +834,21 @@ def main() -> int:
         highlight_keywords=config.get("highlight_keywords", []),
     )
     latest_path = write_outputs(base_dir, config.get("output_dir", "digests"), digest, now)
+
+    issue_digest = render_issue_digest(
+        title=config.get("digest_title", "Daily arXiv Digest"),
+        papers=selected,
+        config=config,
+        query=query,
+        generated_at=now,
+        since=since,
+        highlight_keywords=config.get("highlight_keywords", []),
+    )
+    issue_dir = base_dir / config.get("output_dir", "digests")
+    (issue_dir / "latest-issue.md").write_text(issue_digest, encoding="utf-8")
+    (issue_dir / f"arxiv-digest-{now.strftime('%Y-%m-%d')}-issue.md").write_text(
+        issue_digest, encoding="utf-8"
+    )
 
     if not args.ignore_state:
         state.setdefault("seen", [])
