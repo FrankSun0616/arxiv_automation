@@ -85,6 +85,22 @@ the GitHub Actions tab.
 If the main arXiv API is transiently rate-limited or slow, the digest retries
 with backoff and then falls back to the per-category arXiv RSS feeds.
 
+### Delivery channels
+
+Each run delivers the digest two ways:
+
+1. **GitHub issue (primary).** The workflow opens a daily issue titled like the
+   email subject, with the full digest as the body, labelled `digest` and
+   assigned to the repo owner. Assignment triggers a push notification in the
+   GitHub Mobile app, so no email credentials are involved and nothing can
+   expire. Only the latest digest issue stays open; older ones are auto-closed
+   (history is preserved). This needs only the built-in `GITHUB_TOKEN`.
+2. **Gmail email (best-effort).** The email step is `continue-on-error`, so a
+   missing or expired `GMAIL_APP_PASSWORD` no longer fails the run or blocks the
+   state commit — you simply stop getting the email until the secret is fixed,
+   while the GitHub issue keeps arriving. To get a push for the issue, install
+   GitHub Mobile and enable notifications (or watch the repo).
+
 ### 1. Create a GitHub repository
 
 From this folder:
