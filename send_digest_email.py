@@ -374,6 +374,15 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except KeyboardInterrupt:
         raise SystemExit(130)
+    except smtplib.SMTPAuthenticationError as exc:
+        print(
+            f"send_digest_email.py: Gmail rejected the login "
+            f"({exc.smtp_code} {exc.smtp_error!r}). The GMAIL_APP_PASSWORD secret is "
+            f"likely expired or revoked — generate a new Gmail App Password and update "
+            f"the secret. See README 'GitHub Actions + Gmail' for the steps.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
     except Exception as exc:
-        print(f"send_digest_email.py: {exc}", file=sys.stderr)
+        print(f"send_digest_email.py: {type(exc).__name__}: {exc}", file=sys.stderr)
         raise SystemExit(1)
