@@ -157,3 +157,11 @@ class FetchFeedRetryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ParseTimeValidationTests(unittest.TestCase):
+    def test_rejects_empty_and_non_ascii_iso_timestamps(self):
+        for value in ("", "２０２６-０５-１８T００:００:００Z"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    arxiv_digest.parse_time(value)
+
